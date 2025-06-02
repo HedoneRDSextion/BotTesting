@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";          // para as chamadas manuais de polling
 import { openai } from "./utils/openai.js";
 
 const app = express();
