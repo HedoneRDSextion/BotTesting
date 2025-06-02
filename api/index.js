@@ -6,7 +6,7 @@ import { openai } from "./utils/openai.js";
 
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: ["http://127.0.0.1:5500", "http://localhost:5500"] }));
+app.use(cors({ origin: ["https://a421cf-3c.myshopify.com"] }));
 
 const { ASSISTANT_ID, OPENAI_API_KEY } = process.env;
 
