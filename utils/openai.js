@@ -13,6 +13,5 @@ export async function openai(endpoint, payload) {
     const err = await res.text();
     throw new Error(`OpenAI API error (${res.status}): ${err}`);
   }
-  
   return res.json();
 }

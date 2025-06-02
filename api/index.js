@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { openai } from "../utils/openai.js";
+import cheerio from "cheerio";
 
 const app = express();
 app.use(express.json());
@@ -32,20 +33,57 @@ async function chatWithAssistant(userInput, threadId) {
   });
   let status = run.status;
 
-  /* 4. Polling até concluir */
-  while (status === "queued" || status === "in_progress") {
-    await wait(1000);
-    const check = await fetch(
-      `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "OpenAI-Beta": "assistants=v2"
-        }
+  if (status === "requires_action" &&
+    run.required_action?.type === "submit_tool_outputs"
+  )
+  {
+    const call = run.required_action.submit_tool_outputs.tool_calls[0];
+
+    if (call.function.name === "get_shipping_policy") {
+      /* faz scraping */
+      const policy = await fetch("https://behedone.com/policies/shipping-policy")
+        .then(r => r.text())
+
+        // 2. extrair o texto com cheerio
+      const $ = cheerio.load(html);
+      let policyAux = "";
+      const container = $(".rte");
+      if (container.length) {
+        policyAux = container.text().replace(/\s+/g, " ").trim();
+      } else {
+        policyAux = "Política de envios não encontrada.";
       }
-    ).then(r => r.json());
-    status = check.status;
-  }
+
+      /* envia o resultado da tool */
+      await openai(`threads/${threadId}/runs/${run.id}/submit_tool_outputs`, {
+        tool_outputs: [{
+          tool_call_id: call.id,
+          output: policyAux
+        }]
+      }, "POST");
+
+      // 4. refrescar o estado do run antes de continuar
+      const after = await openai(`threads/${threadId}/runs/${run.id}`, {}, "GET");
+      run.status = after.status;
+    }
+
+      /* depois faz polling até status === completed (como antes) */
+      /* 4. Polling até concluir */
+      while (status === "queued" || status === "in_progress") {
+        await wait(1000);
+        const check = await fetch(
+          `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              "OpenAI-Beta": "assistants=v2"
+            }
+          }
+        ).then(r => r.json());
+        status = check.status;
+      }
+    }
+
 
   if (status !== "completed") throw new Error(`Run terminou em ${status}`);
 
