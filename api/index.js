@@ -54,7 +54,7 @@ async function chatWithAssistant(userInput, threadId) {
 
     if (call.function.name === "get_shipping_policy") {
       // 4.1) Buscar o HTML da página de envio
-      const html = await fetch("https://behedone.com/policies/shipping").then(r =>
+      const html = await fetch("https://behedone.com/policies/shipping-policy").then(r =>
         r.text()
       );
 
