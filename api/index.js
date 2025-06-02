@@ -1,12 +1,36 @@
+// api/index.js
+
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { openai } from "../utils/openai.js";
 import cheerio from "cheerio";
+import { openai } from "../utils/openai.js";
 
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: ["https://a421cf-3c.myshopify.com", "https://behedone.com"] }));
+
+// ─── CORS CONFIG ─────────────────────────────────────────────────────────────
+// Substitua pelos domínios exatos da sua loja Shopify e do seu site.
+// Durante testes locais, pode também incluir "http://127.0.0.1:5500" ou "http://localhost:3000".
+const allowedOrigins = [
+  "https://a421cf-3c.myshopify.com",
+  "https://behedone.com"
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Se estiver em Postman ou em file://, origin pode ser undefined
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Não permitido pelo CORS: " + origin), false);
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
+// ───────────────────────────────────────────────────────────────────────────────
 
 const { ASSISTANT_ID, OPENAI_API_KEY } = process.env;
 const HEADERS = {
@@ -15,22 +39,22 @@ const HEADERS = {
   "OpenAI-Beta": "assistants=v2"
 };
 
-/** Função utilitária para aguardar N milissegundos. */
-const wait = ms => new Promise(r => setTimeout(r, ms));
+/** Função utilitária para aguardar um intervalo de tempo em milissegundos. */
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Conduz toda a conversa com o Assistente:
- * 1) Cria thread (se não existir)
- * 2) Adiciona mensagem do user
- * 3) Inicia o run
- * 4) Se o run pedir a função get_shipping_policy, executa o scrape e envia o resultado
- * 5) Faz polling até o run ficar `completed`
- * 6) Retorna a última resposta do assistente + threadId
+ * chatWithAssistant
+ * 1) Cria um thread se não existir
+ * 2) Envia a mensagem do usuário para o thread
+ * 3) Inicia o run do Assistente
+ * 4) Se o run exigir a função get_shipping_policy, faz scrape e envia o resultado
+ * 5) Faz polling até o run ficar "completed"
+ * 6) Retorna a resposta final do Assistente e o threadId
  */
 async function chatWithAssistant(userInput, threadId) {
   // 1) Criar thread se não existir
   if (!threadId) {
-    const thread = await openai("threads", {}); // POST /v1/threads
+    const thread = await openai("threads", {});
     threadId = thread.id;
   }
 
@@ -45,7 +69,7 @@ async function chatWithAssistant(userInput, threadId) {
     assistant_id: ASSISTANT_ID
   });
 
-  // 4) Se o modelo pediu a função get_shipping_policy, executa-a antes de continuar
+  // 4) Verificar se o modelo pediu a função get_shipping_policy
   if (
     run.status === "requires_action" &&
     run.required_action?.type === "submit_tool_outputs"
@@ -53,9 +77,9 @@ async function chatWithAssistant(userInput, threadId) {
     const call = run.required_action.submit_tool_outputs.tool_calls[0];
 
     if (call.function.name === "get_shipping_policy") {
-      // 4.1) Buscar o HTML da página de envio
-      const html = await fetch("https://behedone.com/policies/shipping-policy").then(r =>
-        r.text()
+      // 4.1) Fazer fetch ao HTML da página de política de envios
+      const html = await fetch("https://behedone.com/policies/shipping-policy").then((res) =>
+        res.text()
       );
 
       // 4.2) Extrair texto limpo usando Cheerio
@@ -78,7 +102,7 @@ async function chatWithAssistant(userInput, threadId) {
         ]
       });
 
-      // 4.4) Recuperar o run atualizado (GET sem body)
+      // 4.4) Recuperar o run atualizado
       const updatedRunRes = await fetch(
         `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
         { headers: HEADERS }
@@ -87,7 +111,7 @@ async function chatWithAssistant(userInput, threadId) {
     }
   }
 
-  // 5) Polling até status = "completed" (ou falhar)
+  // 5) Polling até o run ficar "completed" ou falhar
   let status = run.status;
   while (status === "queued" || status === "in_progress") {
     await wait(1000);
@@ -103,7 +127,7 @@ async function chatWithAssistant(userInput, threadId) {
     throw new Error(`Run terminou em estado "${status}"`);
   }
 
-  // 6) Buscar a última mensagem do assistente
+  // 6) Buscar a última mensagem do Assistente
   const msgsRes = await fetch(
     `https://api.openai.com/v1/threads/${threadId}/messages?limit=1&order=desc`,
     { headers: HEADERS }
@@ -114,13 +138,14 @@ async function chatWithAssistant(userInput, threadId) {
   return { reply, threadId };
 }
 
-// Rota que o widget/Front-end irá chamar
+// Rota consumida pelo front-end / widget Shopify
 app.post("/api/chat", async (req, res) => {
   try {
     const { userInput, threadId } = req.body;
     if (!userInput) {
       return res.status(400).json({ error: "userInput é obrigatório" });
     }
+
     const { reply, threadId: newThreadId } = await chatWithAssistant(
       userInput,
       threadId
@@ -132,5 +157,5 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// **Não** precisa do app.listen() aqui: o Vercel expõe automaticamente
+// Exporta o app para o Vercel (não usar app.listen)
 export default app;
