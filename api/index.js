@@ -3,7 +3,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 import { openai } from "../utils/openai.js";
 
 const app = express();
