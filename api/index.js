@@ -85,8 +85,8 @@ async function chatWithAssistant(userInput, threadId) {
 app.post("/api/chat", async (req, res) => {
     const newThread = "";
     try{
-        const { userId, userInput, threadId } = req.body;
-        if (!userInput || !userId){
+        const { userInput, threadId } = req.body;
+        if (!userInput){
             return res.status(400).json({error: "User input and user ID are mandatory"});
         }
 
