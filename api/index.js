@@ -136,11 +136,11 @@ async function chatWithAssistant(userInput, threadId) {
     // 4.1) Qual função chamar?
     if (call.function.name === "get_shipping_policy") {
       // se a Assistant gerar um call_function "get_shipping_policy"
-      funcOutput = await getShippingPolicyViaSearch();
+      funcOutput = await getShippingPolicyViaSearch(userInput);
 
     } else if (call.function.name === "get_refund_policy") {
       // se ela gerar "get_refund_policy"
-      funcOutput = await getRefundPolicyViaSearch();
+      funcOutput = await getRefundPolicyViaSearch(userInput);
 
     } else {
       // Se for outra função que você não espera, pode fazer fallback ou erro:
