@@ -95,51 +95,80 @@ async function getRefundPolicyViaSearch(userInput) {
 
 /**
  * chatWithAssistant
- * Fluxo de conversa geral usando Assistants API + retrieval.
- * Se detectar intenção de policy, usa getShippingPolicyViaSearch.
+ * 1) Cria thread se não existir
+ * 2) Envia user message
+ * 3) Inicia run
+ * 4) Se run.required_action.type === "call_function":
+ *      → determina qual função chamar pelo run.required_action.call_function.name
+ *      → executa a função local (ex.: getShippingPolicyViaSearch)
+ *      → envia o resultado com submit_tool_outputs
+ *      → faz um GET para buscar o run atualizado
+ * 5) Polling padrão até run.status === "completed"
+ * 6) Lê a última mensagem do assistente e retorna { reply, threadId }
  */
 async function chatWithAssistant(userInput, threadId) {
-  // Se a mensagem do usuário indicar consulta sobre envio, responde imediatamente
-  if (userInput.toLowerCase().includes("envio") || userInput.toLowerCase().includes("shipping")) {
-    try {
-      const policyText = await getShippingPolicyViaSearch(userInput);
-      return { reply: policyText, threadId };
-    } catch (err) {
-      console.error("Erro ao buscar policy via Web Search:", err);
-      // fallback genérico
-      return { reply: "Desculpe, não consegui obter a política de envios no momento.", threadId };
-    }
-  }
 
-  if (userInput.toLowerCase().includes("reembolso") || userInput.toLowerCase().includes("refund")) {
-    try {
-      const policyText = await getRefundPolicyViaSearch(userInput);
-      return { reply: policyText, threadId };
-    } catch (err) {
-      console.error("Erro ao buscar policy via Web Search:", err);
-      // fallback genérico
-      return { reply: "Desculpe, não consegui obter a política de envios no momento.", threadId };
-    }
-  }
-
-  // 1) Criar thread se não existir
+  // 1) Criar thread
   if (!threadId) {
     const thread = await openai("threads", {});
     threadId = thread.id;
   }
 
-  // 2) Adicionar mensagem do usuário ao thread
+  // 2) Adicionar mensagem do usuário
   await openai(`threads/${threadId}/messages`, {
     role: "user",
     content: userInput
   });
 
-  // 3) Iniciar o run
+  // 3) Iniciar run
   let run = await openai(`threads/${threadId}/runs`, {
     assistant_id: ASSISTANT_ID
   });
 
-  // 4) Polling até o run ficar completed/failed
+  // 4) Verifica se é necessário chamar função
+  if (
+    run.status === "requires_action" &&
+    run.required_action?.type === "call_function"
+  ) {
+    const call = run.required_action.call_function;
+    let funcOutput;
+
+    // 4.1) Qual função chamar?
+    if (call.function.name === "get_shipping_policy") {
+      // se a Assistant gerar um call_function "get_shipping_policy"
+      funcOutput = await getShippingPolicyViaSearch();
+
+    } else if (call.function.name === "get_refund_policy") {
+      // se ela gerar "get_refund_policy"
+      funcOutput = await getRefundPolicyViaSearch();
+
+    } else {
+      // Se for outra função que você não espera, pode fazer fallback ou erro:
+      funcOutput = `Função desconhecida: ${call.function.name}`;
+    }
+
+    // 4.2) Envia o resultado da função de volta ao Assistant
+    await openai(
+      `threads/${threadId}/runs/${run.id}/submit_tool_outputs`,
+      {
+        tool_outputs: [
+          {
+            tool_call_id: call.id,
+            output: funcOutput
+          }
+        ]
+      }
+    );
+
+    // 4.3) Ler o run atualizado (GET sem body)
+    const updatedRunRes = await fetch(
+      `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
+      { headers: HEADERS }
+    );
+    run = await updatedRunRes.json();
+  }
+
+  // 5) Polling até run.status === "completed"
   let status = run.status;
   while (status === "queued" || status === "in_progress") {
     await wait(1000);
@@ -155,7 +184,7 @@ async function chatWithAssistant(userInput, threadId) {
     throw new Error(`Run terminou em estado "${status}"`);
   }
 
-  // 5) Obter a última mensagem do assistente
+  // 6) Obter a última mensagem do Assistente
   const msgsRes = await fetch(
     `https://api.openai.com/v1/threads/${threadId}/messages?limit=1&order=desc`,
     { headers: HEADERS }
@@ -164,6 +193,7 @@ async function chatWithAssistant(userInput, threadId) {
   const reply = msgs.data[0]?.content[0]?.text?.value || "(sem resposta)";
 
   return { reply, threadId };
+
 }
 
 // Rota consumida pelo front-end / widget Shopify
