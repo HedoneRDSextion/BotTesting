@@ -60,7 +60,7 @@ async function retrieveThread(threadId){
         const myThread = await openai.beta.threads.retrieve(
             threadId
         )
-        return myThread.id
+        return myThread.json().id;
     }catch(err){
         return null;
     }
