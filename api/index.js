@@ -89,7 +89,7 @@ async function talk(userInput, threadId) {
   // Espera até concluir
   while (["queued", "in_progress"].includes(run.status)) {
     await wait(800);
-    run = await opena.beta.threads.runs.retrieve(threadId, run.id);
+    run = await openai.beta.threads.runs.retrieve(threadId, run.id);
   }
 
   if (run.status !== "completed") throw new Error("Run falhou");
