@@ -189,7 +189,7 @@ async function chatWithAssistant(userInput, threadId) {
     `https://api.openai.com/v1/threads/${threadId}/messages?limit=1&order=desc`,
     { headers: HEADERS }
   );
-  const msgs = await msgsRes.json();
+  const msgs = await msgsRes;
   const reply = msgs.data[0]?.content[0]?.text?.value || "(sem resposta)";
 
   return { reply, threadId };
