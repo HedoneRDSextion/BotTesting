@@ -83,7 +83,7 @@ async function chatWithAssistant(userInput, threadId) {
 
 
 app.post("/api/chat", async (req, res) => {
-    const newThread = "";
+    let newThread = "";
     try{
         const { userInput, threadId } = req.body;
         if (!userInput){
