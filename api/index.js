@@ -54,7 +54,7 @@ async function getShippingPolicyViaSearch(userInput) {
   // };
 
   const response = await ofOpenAI.responses.create({
-    model: "gpt-4.0-mini",
+    model: "gpt-4.1",
     tools: [{
       type: "web_search_preview",
     }],
