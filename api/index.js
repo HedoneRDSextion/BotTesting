@@ -160,8 +160,8 @@ async function chatWithAssistant(userInput, threadId) {
 
   // 5) Polling até run.status === "completed"
   let status = run.status;
-  while (status === "queued" || status === "in_progress") {
-    await wait(300);
+  while (status === "queued" || status === "in_progress" ) {
+    await wait(1000);
     const checkRes = await fetch(
       `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
       { headers: HEADERS }
