@@ -1,21 +1,17 @@
-export async function openai(endpoint, { method = "POST", payload = null } = {}) {
-  const opts = {
-    method,
+export async function openai(endpoint, payload) {
+  const res = await fetch(`https://api.openai.com/v1/${endpoint}`, {
+    method: "POST",
     headers: {
+      "Content-Type": "application/json",
       "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type":  "application/json",
-      "OpenAI-Beta":   "assistants=v2"
-    }
-  };
-
-  // Só inclui body se houver payload e for POST/PATCH
-  if (payload && method !== "GET") opts.body = JSON.stringify(payload);
-
-  const res = await fetch(`https://api.openai.com/v1/${endpoint}`, opts);
+      "OpenAI-Beta": "assistants=v2"
+    },
+    body: JSON.stringify(payload)
+  });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`OpenAI ${method} ${endpoint} → ${res.status}: ${err}`);
+    throw new Error(`OpenAI API error (${res.status}): ${err}`);
   }
-  return res.json();      // sempre devolve JSON
+  return res.json();
 }
