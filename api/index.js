@@ -3,24 +3,21 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import * as cheerio from "cheerio";
+
 import { openai } from "../utils/openai.js";
 
 const app = express();
 app.use(express.json());
 
 // ─── CORS CONFIG ─────────────────────────────────────────────────────────────
-// Substitua pelos domínios exatos da sua loja Shopify e do seu site.
-// Durante testes locais, pode também incluir "http://127.0.0.1:5500" ou "http://localhost:3000".
+// Permitir apenas domínios autorizados (Shopify e behedone.com). Adicione locais de teste conforme necessário.
 const allowedOrigins = [
-  "https://a421cf-3c.myshopify.com",
+  "https://a421cf-3c.myshopify.com",  // substitua pelo domínio da loja
   "https://behedone.com"
 ];
-
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Se estiver em Postman ou em file://, origin pode ser undefined
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -39,26 +36,61 @@ const HEADERS = {
   "OpenAI-Beta": "assistants=v2"
 };
 
-/** Função utilitária para aguardar um intervalo de tempo em milissegundos. */
+/**
+ * Função utilitária para aguardar um intervalo de tempo em milissegundos.
+ */
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * getShippingPolicyViaSearch
+ * Usa o Responses API com o web_search_preview tool para obter a política de envios em tempo real.
+ */
+async function getShippingPolicyViaSearch() {
+  const payload = {
+    model: "gpt-4o-mini",
+    tools: [{ type: "web_search_preview" }],
+    input: "site:behedone.com \"shipping policy\" HEDØNE"
+  };
+
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: HEADERS,
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI Responses API error: ${err}`);
+  }
+  const data = await res.json();
+  // O output_text contém o texto sintetizado da política de envios
+  return data.output_text;
+}
+
+/**
  * chatWithAssistant
- * 1) Cria um thread se não existir
- * 2) Envia a mensagem do usuário para o thread
- * 3) Inicia o run do Assistente
- * 4) Se o run exigir a função get_shipping_policy, faz scrape e envia o resultado
- * 5) Faz polling até o run ficar "completed"
- * 6) Retorna a resposta final do Assistente e o threadId
+ * Fluxo de conversa geral usando Assistants API + retrieval.
+ * Se detectar intenção de policy, usa getShippingPolicyViaSearch.
  */
 async function chatWithAssistant(userInput, threadId) {
+  // Se a mensagem do usuário indicar consulta sobre envio, responde imediatamente
+  if (userInput.toLowerCase().includes("envio")) {
+    try {
+      const policyText = await getShippingPolicyViaSearch();
+      return { reply: policyText, threadId };
+    } catch (err) {
+      console.error("Erro ao buscar policy via Web Search:", err);
+      // fallback genérico
+      return { reply: "Desculpe, não consegui obter a política de envios no momento.", threadId };
+    }
+  }
+
   // 1) Criar thread se não existir
   if (!threadId) {
     const thread = await openai("threads", {});
     threadId = thread.id;
   }
 
-  // 2) Adicionar mensagem do usuário
+  // 2) Adicionar mensagem do usuário ao thread
   await openai(`threads/${threadId}/messages`, {
     role: "user",
     content: userInput
@@ -69,49 +101,7 @@ async function chatWithAssistant(userInput, threadId) {
     assistant_id: ASSISTANT_ID
   });
 
-  // 4) Verificar se o modelo pediu a função get_shipping_policy
-  if (
-    run.status === "requires_action" &&
-    run.required_action?.type === "submit_tool_outputs"
-  ) {
-    const call = run.required_action.submit_tool_outputs.tool_calls[0];
-
-    if (call.function.name === "get_shipping_policy") {
-      // 4.1) Fazer fetch ao HTML da página de política de envios
-      const html = await fetch("https://behedone.com/policies/shipping-policy").then((res) =>
-        res.text()
-      );
-
-      // 4.2) Extrair texto limpo usando Cheerio
-      const $ = cheerio.load(html);
-      let policy = "";
-      const container = $(".rte");
-      if (container.length) {
-        policy = container.text().replace(/\s+/g, " ").trim();
-      } else {
-        policy = "Política de envios não encontrada.";
-      }
-
-      // 4.3) Enviar o resultado da função de volta à OpenAI
-      await openai(`threads/${threadId}/runs/${run.id}/submit_tool_outputs`, {
-        tool_outputs: [
-          {
-            tool_call_id: call.id,
-            output: policy
-          }
-        ]
-      });
-
-      // 4.4) Recuperar o run atualizado
-      const updatedRunRes = await fetch(
-        `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
-        { headers: HEADERS }
-      );
-      run = await updatedRunRes.json();
-    }
-  }
-
-  // 5) Polling até o run ficar "completed" ou falhar
+  // 4) Polling até o run ficar completed/failed
   let status = run.status;
   while (status === "queued" || status === "in_progress") {
     await wait(1000);
@@ -127,7 +117,7 @@ async function chatWithAssistant(userInput, threadId) {
     throw new Error(`Run terminou em estado "${status}"`);
   }
 
-  // 6) Buscar a última mensagem do Assistente
+  // 5) Obter a última mensagem do assistente
   const msgsRes = await fetch(
     `https://api.openai.com/v1/threads/${threadId}/messages?limit=1&order=desc`,
     { headers: HEADERS }
@@ -145,7 +135,6 @@ app.post("/api/chat", async (req, res) => {
     if (!userInput) {
       return res.status(400).json({ error: "userInput é obrigatório" });
     }
-
     const { reply, threadId: newThreadId } = await chatWithAssistant(
       userInput,
       threadId
