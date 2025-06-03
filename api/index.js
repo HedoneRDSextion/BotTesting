@@ -47,11 +47,6 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * Usa o Responses API com o web_search_preview tool para obter a política de envios em tempo real.
  */
 async function getShippingPolicyViaSearch(userInput) {
-  // const payload = {
-  //   model: "gpt-4o-mini",
-  //   tools: [{ type: "web_search_preview" }],
-  //   input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE; user-input: " + userInput
-  // };
 
   const response = await ofOpenAI.responses.create({
     model: "gpt-4.1",
@@ -61,17 +56,6 @@ async function getShippingPolicyViaSearch(userInput) {
     input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE; user-input: " + userInput
   })
 
-  // const res = await fetch("https://api.openai.com/v1/responses", {
-  //   method: "POST",
-  //   headers: HEADERS,
-  //   body: JSON.stringify(payload)
-  // });
-  // if (!response.ok) {
-  //   const err = await res.text();
-  //   throw new Error(`OpenAI Responses API error: ${err}`);
-  // }
-  // const data = await res.json();
-  // O output_text contém o texto sintetizado da política de envios
   return response.output_text;
 }
 
@@ -215,5 +199,4 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// Exporta o app para o Vercel (não usar app.listen)
-// export default app;
+export default app;
