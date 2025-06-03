@@ -102,7 +102,7 @@ async function chatWithAssistant(userInput, threadId) {
 
   /* 3-B.  >>>  POLLING  <<<  */
   while (["queued", "in_progress"].includes(run.status)) {
-    await new Promise(r => setTimeout(r, 800));          // 0,8 s
+    await wait(800)
     run = await openai(`threads/${threadId}/runs/${run.id}`, { method: "GET" });
   }
   console.log("run.status final:", run.status);          // debug
@@ -126,7 +126,7 @@ async function chatWithAssistant(userInput, threadId) {
 
     /* 4-C. espera o run concluir com a resposta final */
     do {
-      await new Promise(r => setTimeout(r, 800));
+      await wait(800);
       run = await openai(`threads/${threadId}/runs/${run.id}`, { method: "GET" });
     } while (["queued", "in_progress"].includes(run.status));
   }
