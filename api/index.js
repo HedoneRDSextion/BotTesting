@@ -49,7 +49,7 @@ async function getShippingPolicyViaSearch() {
   const payload = {
     model: "gpt-4o-mini",
     tools: [{ type: "web_search_preview" }],
-    input: "site:behedone.com \"shipping policy\" HEDØNE"
+    input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE"
   };
 
   const res = await fetch("https://api.openai.com/v1/responses", {
