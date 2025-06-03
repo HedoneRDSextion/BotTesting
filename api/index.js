@@ -103,6 +103,7 @@ async function chatWithAssistant(userInput, threadId) {
 
   // 3. Inicia o run
   let run = await openai(`threads/${threadId}/runs`, {
+    role: "user",
     assistant_id: ASSISTANT_ID,
   });
 
@@ -110,10 +111,10 @@ async function chatWithAssistant(userInput, threadId) {
   while (["queued", "in_progress"].includes(run.status)) {
     await wait(800);
     run = await openai(`threads/${threadId}/runs/${run.id}`, {
+      role: "user",
       method: "GET",
     });
   }
-  console.log("run.status final:", run.status);
 
   // 4. Se precisar de função externa
   if (run.status === "requires_action" && run.required_action?.type === "call_function") {
