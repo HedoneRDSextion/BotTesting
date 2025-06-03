@@ -80,75 +80,92 @@ async function getRefundPolicyViaSearch(userInput) {
 /**
  * chatWithAssistant
  * 1) Cria thread se não existir
- * 2) Envia user message
- * 3) Inicia run
- * 4) Se run.required_action.type === "call_function":
- *      → determina qual função chamar, extraindo os parâmetros corretos
- *      → executa a função local (ex.: getShippingPolicyViaSearch)
- *      → envia o resultado com submit_tool_outputs
- *      → faz polling até run.status === "completed"
- * 5) Lê a última mensagem do assistente e retorna { reply, threadId }
+ * 2) Envia mensagem do utilizador (com “role” e “content” dentro de payload)
+ * 3) Cria um run (com “assistant_id” dentro de payload)
+ * 4) Polling até run sair de “queued”/“in_progress”
+ * 5) Se run exigir chamada de função:
+ *      → Extrai parâmetros de call.required_action.call_function.function.parameters
+ *      → Invoca getShippingPolicyViaSearch(user_query) ou getRefundPolicyViaSearch(user_question)
+ *      → Envia o resultado com submit_tool_outputs (envolvendo tool_outputs dentro de payload)
+ *      → Polling até run.status === “completed”
+ * 6) Retorna a última resposta do assistente
  */
 async function chatWithAssistant(userInput, threadId) {
-  // 1. Cria thread se necessário
+  // 1) Se não houver thread, cria uma nova
   if (!threadId) {
-    threadId = (await openai("threads", {})).id;
+    const threadResp = await openai("threads"); // sem payload → POST sem body
+    threadId = threadResp.id;
   }
 
-  // 2. Adiciona mensagem do utilizador
-  await openai(`threads/${threadId}/messages`, {
-    role: "user",
-    content: userInput,
-  });
+  // 2) Envia a mensagem do utilizador
+  await openai(
+    `threads/${threadId}/messages`,
+    {
+      payload: {
+        role: "user",
+        content: userInput
+      }
+    }
+  );
 
-  // 3. Inicia o run
-  let run = await openai(`threads/${threadId}/runs`, {
-    role: "user",
-    assistant_id: ASSISTANT_ID,
-  });
+  // 3) Inicia um run
+  let run = await openai(
+    `threads/${threadId}/runs`,
+    {
+      payload: { assistant_id: ASSISTANT_ID }
+    }
+  );
 
-  // 3-B. >>> POLLING <<< até sair de "queued" ou "in_progress"
+  // 4) Polling até sair de “queued” ou “in_progress”
   while (["queued", "in_progress"].includes(run.status)) {
     await wait(800);
-    run = await openai(`threads/${threadId}/runs/${run.id}`, {
-      role: "user",
-      method: "GET",
-    });
+    run = await openai(
+      `threads/${threadId}/runs/${run.id}`,
+      { method: "GET" }
+    );
   }
 
-  // 4. Se precisar de função externa
+  // 5) Se o assistant pediu para chamar uma função
   if (run.status === "requires_action" && run.required_action?.type === "call_function") {
     const call = run.required_action.call_function;
     let output = "Função desconhecida";
 
     if (call.function.name === "get_shipping_policy") {
-      // Extrair inquiry_type e user_query dos parâmetros retornados pelo assistant
+      // Extrai inquiry_type e user_query dos parâmetros
       const { inquiry_type, user_query } = call.function.parameters;
-      // Passa user_query para a função de search (o getShippingPolicyViaSearch atual só recebe uma string)
+      // Invoca a search local usando apenas user_query (conforme a função já existente)
       output = await getShippingPolicyViaSearch(user_query);
     }
 
     if (call.function.name === "get_refund_policy") {
-      // Extrair user_question dos parâmetros retornados pelo assistant
+      // Extrai user_question dos parâmetros
       const { user_question } = call.function.parameters;
-      // Passa user_question para a função de search
+      // Invoca a search local usando user_question
       output = await getRefundPolicyViaSearch(user_question);
     }
 
-    // 4-B. Submete o resultado da função de volta ao run
+    // 5-B) Envia o resultado da função de volta ao run, via submit_tool_outputs
     await openai(
       `threads/${threadId}/runs/${run.id}/submit_tool_outputs`,
       {
-        tool_outputs: [{ tool_call_id: call.id, output }],
+        payload: {
+          tool_outputs: [
+            {
+              tool_call_id: call.id,
+              output
+            }
+          ]
+        }
       }
     );
 
-    // 4-C. Polling novamente até run.status === "completed"
+    // 5-C) Polling de novo até run.status === "completed"
     do {
       await wait(800);
-      run = await openai(`threads/${threadId}/runs/${run.id}`, {
-        method: "GET",
-      });
+      run = await openai(
+        `threads/${threadId}/runs/${run.id}`,
+        { method: "GET" }
+      );
     } while (["queued", "in_progress"].includes(run.status));
   }
 
@@ -156,15 +173,16 @@ async function chatWithAssistant(userInput, threadId) {
     throw new Error(`Run terminou em estado ${run.status}`);
   }
 
-  // 5. Busca a última mensagem do assistente
-  const { data } = await openai(
+  // 6) Busca a última mensagem do assistente
+  const messagesResp = await openai(
     `threads/${threadId}/messages?limit=1&order=desc`,
     { method: "GET" }
   );
-  const reply = data[0].content[0].text.value;
+  const reply = messagesResp.data[0].content[0].text.value;
 
   return { reply, threadId };
 }
+
 
 // Rota consumida pelo front-end / widget Shopify
 app.post("/api/chat", async (req, res) => {
