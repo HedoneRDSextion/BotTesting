@@ -75,6 +75,24 @@ async function getShippingPolicyViaSearch(userInput) {
   return response.output_text;
 }
 
+
+/**
+ * getShippingPolicyViaSearch
+ * Usa o Responses API com o web_search_preview tool para obter a política de envios em tempo real.
+ */
+async function getRefundPolicyViaSearch(userInput) {
+
+  const response = await ofOpenAI.responses.create({
+    model: "gpt-4.1",
+    tools: [{
+      type: "web_search_preview",
+    }],
+    input: "site:https://behedone.com/policies/refund-policy \"refund policy\" HEDØNE; user-input: " + userInput
+  })
+
+  return response.output_text;
+}
+
 /**
  * chatWithAssistant
  * Fluxo de conversa geral usando Assistants API + retrieval.
