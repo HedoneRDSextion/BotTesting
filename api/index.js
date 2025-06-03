@@ -109,6 +109,8 @@ async function chatWithAssistant(userInput, threadId) {
     assistant_id: ASSISTANT_ID
   });
 
+  console.log(run)
+
   // 4) Verifica se é necessário chamar função
   if (
     run.status === "requires_action" &&
@@ -121,10 +123,12 @@ async function chatWithAssistant(userInput, threadId) {
 
     // 4.1) Qual função chamar?
     if (call.function.name === "get_shipping_policy") {
+      console.log("entrei no shipping")
       // se a Assistant gerar um call_function "get_shipping_policy"
       funcOutput = await getShippingPolicyViaSearch(userInput);
 
     } else if (call.function.name === "get_refund_policy") {
+      console.log("entrei no refund")
       // se ela gerar "get_refund_policy"
       funcOutput = await getRefundPolicyViaSearch(userInput);
 
@@ -157,7 +161,7 @@ async function chatWithAssistant(userInput, threadId) {
   // 5) Polling até run.status === "completed"
   let status = run.status;
   while (status === "queued" || status === "in_progress") {
-    await wait(100);
+    await wait(300);
     const checkRes = await fetch(
       `https://api.openai.com/v1/threads/${threadId}/runs/${run.id}`,
       { headers: HEADERS }
@@ -165,6 +169,8 @@ async function chatWithAssistant(userInput, threadId) {
     const check = await checkRes.json();
     status = check.status;
   }
+
+  console.log(status)
 
   if (status !== "completed") {
     throw new Error(`Run terminou em estado "${status}"`);
