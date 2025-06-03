@@ -80,35 +80,40 @@ async function getRefundPolicyViaSearch(userInput) {
 /**
  * chatWithAssistant
  * Envia uma mensagem do utilizador a um Assistant na API da OpenAI
- * e lida com eventuais chamadas a funções (“call_function”).
+ * e lida corretamente com o estado “requires_action” de tipo “submit_tool_outputs”.
  *
- * ⚠️  Atenção: TODAS as chamadas POST têm de enviar o JSON dentro da chave `payload`,
- *              porque o helper openai.js só converte `payload` em corpo da request.
+ * ATENÇÃO: TODAS as chamadas POST têm de enviar o JSON dentro da chave `payload`,
+ *          porque o helper openai.js só converte `payload` em corpo da request.
  */
 async function chatWithAssistant(userInput, threadId) {
-  // 1) Criar um thread se ainda não existir
+  // 1) Se não houver thread, cria uma nova
   if (!threadId) {
     const threadRes = await openai("threads", {}); // POST /threads (sem body)
     threadId = threadRes.id;
   }
 
-  // 2) Adicionar a mensagem do utilizador
+  // 2) Adiciona a mensagem do utilizador ao thread
   await openai(
     `threads/${threadId}/messages`,
     {
-      payload: { role: "user", content: userInput } // 👈 obrigatório
+      payload: {
+        role: "user",
+        content: userInput
+      }
     }
   );
 
-  // 3) Iniciar o run
+  // 3) Cria um run para esse thread, indicando o assistant_id
   let run = await openai(
     `threads/${threadId}/runs`,
     {
-      payload: { assistant_id: ASSISTANT_ID } // 👈 obrigatório
+      payload: {
+        assistant_id: ASSISTANT_ID
+      }
     }
   );
 
-  // 3-B) Polling até o status deixar de ser queued/in_progress
+  // 3-B) Polling até o run passar de queued/in_progress
   while (["queued", "in_progress"].includes(run.status)) {
     await wait(800);
     run = await openai(
@@ -117,40 +122,50 @@ async function chatWithAssistant(userInput, threadId) {
     );
   }
 
-  // 4) Se o assistant pediu uma função
-  if (run.status === "requires_action" &&
-      run.required_action?.type === "call_function") {
+  // 4) Se a API disser requires_action e o tipo for submit_tool_outputs,
+  //    é porque o assistant decidiu chamar uma função
+  if (
+    run.status === "requires_action" &&
+    run.required_action?.type === "submit_tool_outputs"
+  ) {
+    // 4-A) Extrair o primeiro tool_call
+    const toolCall = run.required_action
+      .submit_tool_outputs.tool_calls[0];
+    const functionName = toolCall.function.name;
+    // Os arguments vêm como string JSON
+    const parameters = JSON.parse(toolCall.function.arguments);
 
-    const call = run.required_action.call_function;
     let output = "Função não tratada";
 
-    /* --- get_shipping_policy --- */
-    if (call.name === "get_shipping_policy") {
-      const { inquiry_type, user_query } = call.parameters;
+    // 4-B) Dependendo do nome, invoca a função local
+    if (functionName === "get_shipping_policy") {
+      // Esperamos que parameters tenha { inquiry_type, user_query }
+      const { inquiry_type, user_query } = parameters;
       output = await getShippingPolicyViaSearch(user_query);
-      // (pode usar inquiry_type para afinar a query)
     }
 
-    /* --- get_refund_policy --- */
-    if (call.name === "get_refund_policy") {
-      const { user_question } = call.parameters;
+    if (functionName === "get_refund_policy") {
+      // Esperamos que parameters tenha { user_question }
+      const { user_question } = parameters;
       output = await getRefundPolicyViaSearch(user_question);
     }
 
-    // 4-B) Entregar o resultado da função ao Assistant
+    // 4-C) Envia o resultado da função de volta ao run
     await openai(
       `threads/${threadId}/runs/${run.id}/submit_tool_outputs`,
       {
         payload: {
-          tool_outputs: [{
-            tool_call_id: call.id,
-            output
-          }]
+          tool_outputs: [
+            {
+              tool_call_id: toolCall.id,
+              output
+            }
+          ]
         }
       }
     );
 
-    // 4-C) Polling outra vez até o run ficar completed
+    // 4-D) Polling de novo até o run ficar “completed”
     do {
       await wait(800);
       run = await openai(
@@ -160,12 +175,12 @@ async function chatWithAssistant(userInput, threadId) {
     } while (["queued", "in_progress"].includes(run.status));
   }
 
-  // 5) Se não concluiu, algo falhou
+  // 5) Se não ficou completed, deu erro
   if (run.status !== "completed") {
-    throw new Error(`Run terminou no estado ${run.status}`);
+    throw new Error(`Run terminou em estado ${run.status}`);
   }
 
-  // 6) Buscar a última mensagem do assistant
+  // 6) Finalmente, lê a última mensagem do assistant
   const { data } = await openai(
     `threads/${threadId}/messages?limit=1&order=desc`,
     { method: "GET" }
@@ -174,6 +189,7 @@ async function chatWithAssistant(userInput, threadId) {
 
   return { reply, threadId };
 }
+
 
 
 
