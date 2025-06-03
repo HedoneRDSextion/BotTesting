@@ -168,6 +168,8 @@ async function chatWithAssistant(userInput, threadId) {
     );
     const check = await checkRes.json();
     status = check.status;
+    console.log(checkRes)
+    console.log(status)
   }
 
   console.log(status)
