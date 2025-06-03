@@ -43,16 +43,16 @@ const webSearch = async (url, term, userInput) => {
 /*────────────────────── Função principal ───────────────────*/
 async function talk(userInput, threadId) {
   // Cria thread, se necessário
-  if (!threadId) threadId = (await openai.threads.create()).id;
+  if (!threadId) threadId = (await openai.beta.threads.create()).id;
 
   // Envia msg do user
-  await openai.threads.messages.create(threadId, {
+  await openai.beta.threads.messages.create(threadId, {
     role: "user",
     content: userInput
   });
 
   // Inicia o run
-  let run = await openai.threads.runs.create(threadId, {
+  let run = await openai.beta.threads.runs.create(threadId, {
     assistant_id: process.env.ASSISTANT_ID
   });
 
@@ -76,26 +76,26 @@ async function talk(userInput, threadId) {
       );
 
     // devolve resultado da função
-    await openai.threads.runs.submitToolOutputs(
+    await openai.beta.threads.runs.submitToolOutputs(
       threadId,
       run.id,
       [{ tool_call_id: call.id, output }]
     );
 
     // actualiza o run
-    run = await openai.threads.runs.retrieve(threadId, run.id);
+    run = await openai.beta.threads.runs.retrieve(threadId, run.id);
   }
 
   // Espera até concluir
   while (["queued", "in_progress"].includes(run.status)) {
     await wait(800);
-    run = await openai.threads.runs.retrieve(threadId, run.id);
+    run = await opena.beta.threads.runs.retrieve(threadId, run.id);
   }
 
   if (run.status !== "completed") throw new Error("Run falhou");
 
   // Resposta final
-  const { data } = await openai.threads.messages.list(threadId, { limit: 1, order: "desc" });
+  const { data } = await openai.beta.threads.messages.list(threadId, { limit: 1, order: "desc" });
   return { reply: data[0].content[0].text.value, threadId };
 }
 
