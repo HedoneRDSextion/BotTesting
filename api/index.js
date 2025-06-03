@@ -3,10 +3,9 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { openai } from "../utils/openai.js";
 import OpenAI from "openai";
 
-const OpenAI_aux = new OpenAI();
+const openai = new OpenAI();
 const app = express();
 app.use(express.json());
 
