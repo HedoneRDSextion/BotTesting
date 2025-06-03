@@ -3,9 +3,9 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-
 import { openai } from "../utils/openai.js";
 
+const ofOpenAI = new OpenAI();
 const app = express();
 app.use(express.json());
 
@@ -45,25 +45,33 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * getShippingPolicyViaSearch
  * Usa o Responses API com o web_search_preview tool para obter a política de envios em tempo real.
  */
-async function getShippingPolicyViaSearch() {
-  const payload = {
-    model: "gpt-4o-mini",
-    tools: [{ type: "web_search_preview" }],
-    input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE"
-  };
+async function getShippingPolicyViaSearch(userInput) {
+  // const payload = {
+  //   model: "gpt-4o-mini",
+  //   tools: [{ type: "web_search_preview" }],
+  //   input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE; user-input: " + userInput
+  // };
 
-  const res = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI Responses API error: ${err}`);
-  }
-  const data = await res.json();
+  const response = await ofOpenAI.responses.create({
+    model: "gpt-4.0-mini",
+    tools: [{
+      type: "web_search_preview",
+    }],
+    input: "site:https://behedone.com/policies/shipping-policy \"shipping policy\" HEDØNE; user-input: " + userInput
+  })
+
+  // const res = await fetch("https://api.openai.com/v1/responses", {
+  //   method: "POST",
+  //   headers: HEADERS,
+  //   body: JSON.stringify(payload)
+  // });
+  // if (!response.ok) {
+  //   const err = await res.text();
+  //   throw new Error(`OpenAI Responses API error: ${err}`);
+  // }
+  // const data = await res.json();
   // O output_text contém o texto sintetizado da política de envios
-  return data.output_text;
+  return response.output_text;
 }
 
 /**
@@ -75,7 +83,7 @@ async function chatWithAssistant(userInput, threadId) {
   // Se a mensagem do usuário indicar consulta sobre envio, responde imediatamente
   if (userInput.toLowerCase().includes("envio")) {
     try {
-      const policyText = await getShippingPolicyViaSearch();
+      const policyText = await getShippingPolicyViaSearch(userInput);
       return { reply: policyText, threadId };
     } catch (err) {
       console.error("Erro ao buscar policy via Web Search:", err);
