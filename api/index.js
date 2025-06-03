@@ -100,9 +100,20 @@ async function getRefundPolicyViaSearch(userInput) {
  */
 async function chatWithAssistant(userInput, threadId) {
   // Se a mensagem do usuário indicar consulta sobre envio, responde imediatamente
-  if (userInput.toLowerCase().includes("envio")) {
+  if (userInput.toLowerCase().includes("envio") || userInput.toLowerCase().includes("shipping")) {
     try {
       const policyText = await getShippingPolicyViaSearch(userInput);
+      return { reply: policyText, threadId };
+    } catch (err) {
+      console.error("Erro ao buscar policy via Web Search:", err);
+      // fallback genérico
+      return { reply: "Desculpe, não consegui obter a política de envios no momento.", threadId };
+    }
+  }
+
+  if (userInput.toLowerCase().includes("reembolso") || userInput.toLowerCase().includes("refund")) {
+    try {
+      const policyText = await getRefundPolicyViaSearch(userInput);
       return { reply: policyText, threadId };
     } catch (err) {
       console.error("Erro ao buscar policy via Web Search:", err);
