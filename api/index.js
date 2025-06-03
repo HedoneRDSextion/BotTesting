@@ -1,136 +1,116 @@
-// api/index.js
+// api/index.js – versão simplificada
 
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
 
+/*────────────────────── Config. Básica ──────────────────────*/
 const openai = new OpenAI();
-const app = express();
+const app    = express();
 app.use(express.json());
 
-
-// ─── CORS CONFIG ─────────────────────────────────────────────────────────────
-// Permitir apenas domínios autorizados (Shopify e behedone.com). Adicione locais de teste conforme necessário.
-const allowedOrigins = [
-  "https://a421cf-3c.myshopify.com",  // substitua pelo domínio da loja
+// CORS – só permite Shopify + domínio da loja
+const ALLOWED = [
+  "https://a421cf-3c.myshopify.com",
   "https://behedone.com"
 ];
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error("Não permitido pelo CORS: " + origin), false);
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-  })
-);
-// ───────────────────────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: (o, cb) => (!o || ALLOWED.includes(o)) ? cb(null, true)
+                                           : cb(new Error("CORS")),
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
 
-
-const { ASSISTANT_ID, OPENAI_API_KEY } = process.env;
-const HEADERS = {
-  "Authorization": `Bearer ${OPENAI_API_KEY}`,
-  "Content-Type": "application/json",
-  "OpenAI-Beta": "assistants=v2"
+/*────────────────────── Helpers ─────────────────────────────*/
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const HEAD = {
+  "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+  "Content-Type" : "application/json",
+  "OpenAI-Beta"  : "assistants=v2"
 };
 
+// Web‑search helpers (Responses API)
+const webSearch = async (url, term, userInput) => {
+  const { output_text } = await openai.responses.create({
+    model : "gpt-4.1",
+    tools : [{ type: "web_search_preview" }],
+    input : `site:${url} "${term}" HEDØNE` + userInput
+  });
+  return output_text;
+};
 
-async function ensureAssistantExists() {
+/*────────────────────── Função principal ───────────────────*/
+async function talk(userInput, threadId) {
+  // Cria thread, se necessário
+  if (!threadId) threadId = (await openai.threads.create()).id;
 
-    // If we already fetched or created it, skip.
-    if (ASSISTANT_ID) return;
+  // Envia msg do user
+  await openai.threads.messages.create(threadId, {
+    role: "user",
+    content: userInput
+  });
 
-    // Validate if our assistant exists
-    const existAss = await openai.beta.assistants.retrive(ASSISTANT_ID);
+  // Inicia o run
+  let run = await openai.threads.runs.create(threadId, {
+    assistant_id: process.env.ASSISTANT_ID
+  });
 
-    if (existAss) {
-      return;
-    } else {
-        throw new Error(`The "${ASSISTANT_ID}" does not currently exists`);
-    }
+  // Se o modelo pedir função externa
+  if (run.status === "requires_action") {
+    const { call_function: call } = run.required_action;
+    let output = "Função desconhecida";
+
+    if (call.function.name === "get_shipping_policy")
+      output = await webSearch(
+        "behedone.com/policies/shipping-policy",
+        "shipping policy",
+        userInput
+      );
+
+    if (call.function.name === "get_refund_policy")
+      output = await webSearch(
+        "behedone.com/policies/refund-policy",
+        "refund policy",
+        userInput
+      );
+
+    // devolve resultado da função
+    await openai.threads.runs.submitToolOutputs(
+      threadId,
+      run.id,
+      [{ tool_call_id: call.id, output }]
+    );
+
+    // actualiza o run
+    run = await openai.threads.runs.retrieve(threadId, run.id);
+  }
+
+  // Espera até concluir
+  while (["queued", "in_progress"].includes(run.status)) {
+    await wait(800);
+    run = await openai.threads.runs.retrieve(threadId, run.id);
+  }
+
+  if (run.status !== "completed") throw new Error("Run falhou");
+
+  // Resposta final
+  const { data } = await openai.threads.messages.list(threadId, { limit: 1, order: "desc" });
+  return { reply: data[0].content[0].text.value, threadId };
 }
 
-
-async function retrieveThread(threadId){
-    try{
-        const myThread = await openai.beta.threads.retrieve(
-            threadId
-        )
-        return myThread.json().id;
-    }catch(err){
-        return null;
-    }
-
-}
-
-/**
- * 4. MAIN HANDLER: Receives a user message, forwards to the Assistants API, returns AI reply.
- *    Expects JSON body: {
- *                        userId: string,
- *                        message: string,
- *                        threadId?: string
-*                        }
- *    Returns: { reply: string, threadId: string }
- */
-
-async function chatWithAssistant(userInput, threadId) {
-
-}
-
-
+/*────────────────────── Endpoint ───────────────────────────*/
 app.post("/api/chat", async (req, res) => {
-    let newThread = "";
-    try{
-        const { userInput, threadId } = req.body;
-        if (!userInput){
-            return res.status(400).json({error: "User input and user ID are mandatory"});
-        }
+  try {
+    const { userInput, threadId } = req.body;
+    if (!userInput) return res.status(400).json({ error: "userInput é obrigatório" });
 
-        //before starting a conversation it must validate the existance of an assistant
-        await ensureAssistantExists();
-
-        let activeThread = await retrieveThread(threadId)
-
-        if(!activeThread){
-            newThread = await openai.beta.threads.create();
-        }else{
-            newThread = activeThread
-        }
-
-        const threadMessages = await openai.beta.threads.messages.create(
-            newThread,
-            {
-                role: "user",
-                content: userInput
-            }
-        );
-
-        const runAssistant = await openai.beta.threads.runs.create(
-            newThread,
-            { assistant_id: ASSISTANT_ID }
-        );
-
-        // 4d. Extract the assistant’s reply
-        const aiReply = runAssistant.choices[0].message.content.trim();
-
-        // 4e. Return AI reply and threadId so client can continue the conversation
-        return res.json({
-            reply: aiReply,
-            threadId: newThread,
-        });
-
-
-    }catch (error) {
-        console.error("Error in /assistant-chat:", error);
-        return res.status(500).json({
-          error: "An error occurred while communicating with the Assistants API.",
-          details: error.message,
-        });
-    }
-})
+    const { reply, threadId: tId } = await talk(userInput, threadId);
+    res.json({ reply, threadId: tId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default app;
