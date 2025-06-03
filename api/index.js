@@ -117,6 +117,8 @@ async function chatWithAssistant(userInput, threadId) {
     const call = run.required_action.call_function;
     let funcOutput;
 
+    console.log(call)
+
     // 4.1) Qual função chamar?
     if (call.function.name === "get_shipping_policy") {
       // se a Assistant gerar um call_function "get_shipping_policy"
