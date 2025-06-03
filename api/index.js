@@ -32,16 +32,16 @@ const webSearch = async (url, term) => (await openai.responses.create({
 /*────────────────── Fluxo principal ───────────────*/
 async function talk(userInput, threadId = null) {
   // 1️⃣ cria thread se não existir
-  if (!threadId) threadId = (await openai.threads.create()).id;
+  if (!threadId) threadId = (await openai.beta.threads.create()).id;
 
   // 2️⃣ adiciona mensagem do utilizador
-  await openai.threads.messages.create(threadId, {
+  await openai.beta.threads.messages.create(threadId, {
     role: "user",
     content: userInput
   });
 
   // 3️⃣ inicia o run
-  let run = await openai.threads.runs.create(threadId, {
+  let run = await openai.beta.threads.runs.create(threadId, {
     assistant_id: process.env.ASSISTANT_ID
   });
 
@@ -56,22 +56,22 @@ async function talk(userInput, threadId = null) {
     if (call.function.name === "get_refund_policy")
       output = await webSearch("behedone.com/policies/refund-policy","refund policy");
 
-    await openai.threads.runs.submitToolOutputs(threadId, run.id, [
+    await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, [
       { tool_call_id: call.id, output }
     ]);
 
-    run = await openai.threads.runs.retrieve(threadId, run.id);
+    run = await openai.beta.threads.runs.retrieve(threadId, run.id);
   }
 
   // 5️⃣ aguarda conclusão
   while (["queued","in_progress"].includes(run.status)) {
     await wait(800);
-    run = await openai.threads.runs.retrieve(threadId, run.id);
+    run = await openai.beta.threads.runs.retrieve(threadId, run.id);
   }
   if (run.status !== "completed") throw new Error(`Run falhou: ${run.status}`);
 
   // 6️⃣ devolve a última mensagem do assistente
-  const { data } = await openai.threads.messages.list(threadId, { limit: 1, order: "desc" });
+  const { data } = await openai.beta.threads.messages.list(threadId, { limit: 1, order: "desc" });
   return { reply: data[0].content[0].text.value, threadId };
 }
 
@@ -91,3 +91,4 @@ app.post("/api/chat", async (req, res) => {
 });
 
 export default app;
+ 
